@@ -1,0 +1,27 @@
+spec:
+  name: product-launch-assistant
+
+  services:
+  - name: frontend
+    git:
+      branch: main
+      repo_clone_url: https://github.com/bnarasimha21/product-launch-assistant.git
+    source_dir: frontend
+    dockerfile_path: frontend/Dockerfile
+    http_port: 3000
+    routes:
+    - path: /
+    envs:
+    - key: REACT_APP_API_URL
+      scope: RUN_AND_BUILD_TIME
+      value: ${APP_URL}/backend
+
+  - name: backend
+    git:
+      branch: main
+      repo_clone_url: https://github.com/bnarasimha21/product-launch-assistant.git
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    http_port: 8000
+    routes:
+    - path: /backend
