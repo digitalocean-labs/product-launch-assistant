@@ -16,9 +16,9 @@ ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
 # Build the React app (environment variables baked in here)
+RUN npm run build
 # Add build timestamp to force fresh deployments
 RUN echo "Build timestamp: $(date)" > build/build-info.txt
-RUN npm run build
 
 # Install serve to serve the built app
 RUN npm install -g serve
