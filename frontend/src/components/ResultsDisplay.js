@@ -112,6 +112,7 @@ function ResultsDisplay({ results, onReset }) {
         <p className="text-gray-600 mb-6">
           Your comprehensive AI-generated product launch strategy
         </p>
+        {/* Build: 2024-09-02-v3 */}
         
         <div className="flex flex-wrap justify-center gap-4 mb-8">
           <button
