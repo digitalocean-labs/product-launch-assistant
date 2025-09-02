@@ -1,5 +1,7 @@
 name: product-launch-assistant
 region: nyc
+# Force fresh deployment with new formatting
+version: "2024-09-02-v2"
 
 services:
   # Backend API Component

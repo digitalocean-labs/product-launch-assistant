@@ -16,6 +16,8 @@ ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
 # Build the React app (environment variables baked in here)
+# Add build timestamp to force fresh deployments
+RUN echo "Build timestamp: $(date)" > build/build-info.txt
 RUN npm run build
 
 # Install serve to serve the built app
@@ -37,4 +39,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
 # Serve the built React app
-CMD ["serve", "-s", "build", "-l", "3000", "-c", "0"]
+# Serve the built React app with no caching to ensure fresh content
+# -c 0 disables caching, -n disables etag, -s serves SPA
+CMD ["serve", "-s", "build", "-l", "3000", "-c", "0", "-n"]
