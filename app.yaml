@@ -8,7 +8,7 @@ services:
   - name: api
     source_dir: /backend
     github:
-      repo: bnarasimha21/product-launch-assistant
+      repo: digitalocean-labs/product-launch-assistant
       branch: main
     dockerfile_path: /backend/Dockerfile
     instance_count: 1
@@ -43,7 +43,7 @@ services:
   - name: frontend
     source_dir: /frontend
     github:
-      repo: bnarasimha21/product-launch-assistant
+      repo: digitalocean-labs/product-launch-assistant
       branch: main
     dockerfile_path: /frontend/Dockerfile
     instance_count: 1
