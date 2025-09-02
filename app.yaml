@@ -33,6 +33,9 @@ services:
       - key: DIGITALOCEAN_INFERENCE_KEY
         value: ${DIGITALOCEAN_INFERENCE_KEY}
         type: SECRET
+      - key: SERPER_API_KEY
+        value: ${SERPER_API_KEY}
+        type: SECRET
 
   # Frontend Component
   - name: frontend

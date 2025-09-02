@@ -99,7 +99,9 @@ product-launch-assistant/
    
    # Copy and configure environment variables
    cp .env.example .env
-   # Edit .env and update DIGITALOCEAN_INFERENCE_KEY with your actual API key
+   # Edit .env and set the following keys with your actual values
+   # - DIGITALOCEAN_INFERENCE_KEY (required)
+   # - SERPER_API_KEY (recommended for live web search)
    
    # Start backend
    python main.py
@@ -139,6 +141,7 @@ product-launch-assistant/
 - Environment Variables:
   ```
   DIGITALOCEAN_INFERENCE_KEY = [your_key] (SECRET)
+  SERPER_API_KEY = [your_serper_key] (SECRET)
   ```
 
 **Frontend Service:**
