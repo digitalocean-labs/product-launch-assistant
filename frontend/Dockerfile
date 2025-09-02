@@ -15,19 +15,23 @@ COPY . ./
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
+# Create a non-root user first
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 --ingroup nodejs nextjs
+
 # Build the React app (environment variables baked in here)
 RUN npm run build
 # Add build timestamp to force fresh deployments
 RUN echo "Build timestamp: $(date)" > build/build-info.txt
 
+# Verify build directory exists and has content
+RUN ls -la build/
+RUN test -f build/index.html
+
 # Install serve to serve the built app
 RUN npm install -g serve
 
-# Create a non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 --ingroup nodejs nextjs
-
-# Change ownership of the app directory
+# Change ownership of the app directory to nextjs user
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 
