@@ -28,8 +28,8 @@ RUN echo "Build timestamp: $(date)" > build/build-info.txt
 RUN ls -la build/
 RUN test -f build/index.html
 
-# Install serve to serve the built app
-RUN npm install -g serve
+# Install serve locally for serving the built app
+RUN npm install serve
 
 # Change ownership of the app directory to nextjs user
 RUN chown -R nextjs:nodejs /app
@@ -43,6 +43,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
 # Serve the built React app
-# Serve the built React app with no caching to ensure fresh content
-# -c 0 disables caching, -n disables etag, -s serves SPA
-CMD ["serve", "-s", "build", "-l", "3000", "-c", "0", "-n"]
+# Use npx serve with proper syntax for SPA
+CMD ["npx", "serve", "-s", "build", "-l", "3000"]
