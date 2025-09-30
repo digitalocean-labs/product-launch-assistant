@@ -24,6 +24,9 @@ load_dotenv()
 DIGITALOCEAN_INFERENCE_KEY = os.getenv("DIGITALOCEAN_INFERENCE_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
+# Quality thresholds (tweak for demos or production)
+MARKET_RESEARCH_MIN_CHARS = 800
+
 llm = ChatGradient(
     api_key=DIGITALOCEAN_INFERENCE_KEY,
     temperature=0.7,
@@ -204,7 +207,7 @@ def web_search(query: str, max_results: int = 5) -> str:
 # Guardrails: Quality assessment and retry/fallback helpers
 # -------------------------
 
-def assess_quality(text: str, minimum_characters: int = 800) -> str:
+def assess_quality(text: str, minimum_characters: int = MARKET_RESEARCH_MIN_CHARS) -> str:
     """Very simple heuristic quality check.
     - Flags content as poor if too short or contains clear warnings.
     """
@@ -342,6 +345,10 @@ Generated on: {os.getcwd()}
 def market_research(state: dict):
     # Get live market data
     search_query = f"{state['product_name']} {state['target_market']} market trends competitors 2024"
+    # Incorporate guard-provided query hint if present (improves subsequent attempts)
+    query_hint = state.get("_mr_query_hint")
+    if query_hint:
+        search_query = f"{search_query} {query_hint}"
     web_data = web_search(search_query)
     
     # Enhanced AI analysis with web data
@@ -355,6 +362,8 @@ def market_research(state: dict):
         f"4. Market size and growth potential\n"
         f"5. SWOT analysis"
     )
+    if query_hint:
+        prompt += f"\n\nWhen analyzing, incorporate this hint: {query_hint}."
     
     state = generate_with_retries(prompt, "market_research", state, max_retries=1)
     state['market_research_quality'] = assess_quality(state.get('market_research', ''))
