@@ -451,12 +451,9 @@ graph.set_entry_point("market_research")
 # Guarded transition: if market research quality is poor and retries remain, loop back to re-run
 def route_after_market_research(state: dict) -> str:
     quality = state.get("market_research_quality", "poor")
-    retries = state.get("retries", {}).get("market_research", 0)
-    max_retries = state.get("max_retries", 1)
-    if quality == "poor" and retries < max_retries:
-        # Adjust the query slightly to improve results next time
+    if quality == "poor":
+        # Optionally, you can still adjust the query hint for future runs
         state["_mr_query_hint"] = "broaden keywords and include competitor names"
-        return "market_research"  # retry same node
     return "product_description"
 
 graph.add_conditional_edges(
