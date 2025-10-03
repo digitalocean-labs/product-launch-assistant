@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import requests
 import json
 import logging
+import time
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -23,10 +24,20 @@ load_dotenv()
 DIGITALOCEAN_INFERENCE_KEY = os.getenv("DIGITALOCEAN_INFERENCE_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
+# Quality thresholds (tweak for demos or production)
+MARKET_RESEARCH_MIN_CHARS = 800
+
 llm = ChatGradient(
     api_key=DIGITALOCEAN_INFERENCE_KEY,
     temperature=0.7,
     model="llama3.3-70b-instruct"
+)
+
+# Secondary model used as a fallback if generation fails or quality is poor
+llm_fallback = ChatGradient(
+    api_key=DIGITALOCEAN_INFERENCE_KEY,
+    temperature=0.7,
+    model="llama3.1-8b-instruct"
 )
 
 # Simple in-memory session storage (for demo - use Redis/DB in production)
@@ -192,6 +203,110 @@ def web_search(query: str, max_results: int = 5) -> str:
         # Fallback to basic description if API fails
         return f"⚠️ Web search unavailable: {str(e)}. Using AI-only analysis."
 
+# -------------------------
+# Guardrails: Quality assessment and retry/fallback helpers
+# -------------------------
+
+def assess_quality(text: str, minimum_characters: int = MARKET_RESEARCH_MIN_CHARS) -> str:
+    """Robust quality assessment for generated content.
+    - Checks length, structure, and content quality indicators
+    - Avoids false positives from legitimate content
+    """
+    blob = (text or "").strip()
+    
+    # Length check
+    if len(blob) < minimum_characters:
+        return "poor"
+    
+    # Check for explicit failure indicators (more specific than generic "error")
+    failure_indicators = [
+        "⚠️ generation failed",
+        "generation failed after retries",
+        "api error:",
+        "search api error:",
+        "web search unavailable:",
+        "failed to generate",
+        "unable to generate",
+        "generation error:",
+        "api unavailable"
+    ]
+    
+    blob_lower = blob.lower()
+    for indicator in failure_indicators:
+        if indicator in blob_lower:
+            return "poor"
+    
+    # Check for structural quality indicators
+    # Good content should have multiple sections/points
+    section_indicators = ["1.", "2.", "3.", "•", "-", "*", "##", "###"]
+    has_structure = any(indicator in blob for indicator in section_indicators)
+    
+    # Check for substantive content (not just placeholders)
+    placeholder_phrases = [
+        "placeholder text",
+        "sample content",
+        "example text",
+        "lorem ipsum",
+        "to be filled",
+        "coming soon"
+    ]
+    
+    has_placeholders = any(phrase in blob_lower for phrase in placeholder_phrases)
+    
+    # Check for minimum word count (more reliable than character count for some content)
+    word_count = len(blob.split())
+    min_words = minimum_characters // 6  # Rough estimate: 6 chars per word
+    
+    # Quality assessment
+    if has_placeholders:
+        return "poor"
+    
+    if word_count < min_words:
+        return "poor"
+    
+    # If it has good length, structure, and no failure indicators, consider it good
+    if has_structure or word_count >= min_words * 1.5:
+        return "good"
+    
+    # Default to good if it passes basic checks
+    return "good"
+
+
+def generate_with_retries(prompt: str, section_key: str, state: dict, max_retries: int = 2) -> dict:
+    """Attempt generation with primary model, retry on failure, then fallback model.
+    Tracks retry counts and which model ultimately produced the output.
+    """
+    retries = state.setdefault("retries", {})
+    model_used = state.setdefault("model_used", {})
+    attempts = 0
+    backoff_seconds = 0.5
+
+    # Try primary model with retries
+    while attempts <= max_retries:
+        try:
+            content = llm.invoke(prompt).content
+            state[section_key] = content
+            model_used[section_key] = getattr(llm, "model", "primary")
+            retries[section_key] = attempts
+            return state
+        except Exception as e:
+            attempts += 1
+            retries[section_key] = attempts
+            time.sleep(backoff_seconds)
+            backoff_seconds = min(backoff_seconds * 2, 2.0)
+
+    # Fallback model
+    try:
+        content = llm_fallback.invoke(prompt).content
+        state[section_key] = content
+        model_used[section_key] = getattr(llm_fallback, "model", "fallback")
+        return state
+    except Exception:
+        # Final failure; leave an explicit error note for observability
+        state[section_key] = "⚠️ Generation failed after retries and fallback."
+        model_used[section_key] = "failed"
+        return state
+
 # Helper function for creating Mermaid diagrams
 def create_launch_timeline_diagram(launch_plan_text: str) -> str:
     """
@@ -283,6 +398,10 @@ Generated on: {os.getcwd()}
 def market_research(state: dict):
     # Get live market data
     search_query = f"{state['product_name']} {state['target_market']} market trends competitors 2024"
+    # Incorporate guard-provided query hint if present (improves subsequent attempts)
+    query_hint = state.get("_mr_query_hint")
+    if query_hint:
+        search_query = f"{search_query} {query_hint}"
     web_data = web_search(search_query)
     
     # Enhanced AI analysis with web data
@@ -296,8 +415,11 @@ def market_research(state: dict):
         f"4. Market size and growth potential\n"
         f"5. SWOT analysis"
     )
+    if query_hint:
+        prompt += f"\n\nWhen analyzing, incorporate this hint: {query_hint}."
     
-    state['market_research'] = llm.invoke(prompt).content
+    state = generate_with_retries(prompt, "market_research", state, max_retries=1)
+    state['market_research_quality'] = assess_quality(state.get('market_research', ''))
     return state
 
 # 2. Product Description Generation
@@ -307,7 +429,7 @@ def product_description(state: dict):
         f"Product details: {state['product_details']}. "
         f"Target market: {state['target_market']}."
     )
-    state['product_description'] = llm.invoke(prompt).content
+    state = generate_with_retries(prompt, "product_description", state, max_retries=1)
     return state
 
 # 3. Pricing Strategy (Enhanced with web search)
@@ -328,7 +450,7 @@ def pricing_strategy(state: dict):
         f"4. Discount and promotion strategies\n"
         f"5. Revenue projections"
     )
-    state['pricing_strategy'] = llm.invoke(prompt).content
+    state = generate_with_retries(prompt, "pricing_strategy", state, max_retries=1)
     return state
 
 # 4. Launch Plan (Enhanced with diagram generation)
@@ -346,7 +468,8 @@ def launch_plan(state: dict):
         f"Focus ONLY on the launch timeline, activities, and execution plan. Do not include pricing information."
     )
     
-    launch_text = llm.invoke(prompt).content
+    state = generate_with_retries(prompt, "launch_plan", state, max_retries=1)
+    launch_text = state['launch_plan']
     
     # Generate timeline diagram
     timeline_diagram = create_launch_timeline_diagram(launch_text)
@@ -374,10 +497,10 @@ def marketing_content(state: dict):
         f"6. Content calendar suggestions\n\n"
         f"Make it engaging, trendy, and tailored to {state['target_market']}"
     )
-    state['marketing_content'] = llm.invoke(prompt).content
+    state = generate_with_retries(prompt, "marketing_content", state, max_retries=1)
     return state
 
-# Build the LangGraph workflow
+# Build the LangGraph workflow with guards, fallbacks, and retries
 graph = StateGraph(dict)
 graph.add_node("market_research", market_research)
 graph.add_node("product_description", product_description)
@@ -386,11 +509,33 @@ graph.add_node("launch_plan", launch_plan)
 graph.add_node("marketing_content", marketing_content)
 
 graph.set_entry_point("market_research")
-graph.add_edge("market_research", "product_description")
+
+# Guarded transition: if market research quality is poor and retries remain, loop back to re-run
+def route_after_market_research(state: dict) -> str:
+    quality = state.get("market_research_quality", "poor")
+    mr_retries = state.get("_mr_retries", 0)
+    max_mr_retries = 2  # Maximum retries for market research
+    
+    if quality == "poor" and mr_retries < max_mr_retries:
+        # Increment retry counter and adjust query hint for future runs
+        state["_mr_retries"] = mr_retries + 1
+        state["_mr_query_hint"] = "broaden keywords and include competitor names"
+        return "market_research"
+    
+    # If quality is good or max retries reached, proceed to next step
+    return "product_description"
+
+graph.add_conditional_edges(
+    "market_research",
+    route_after_market_research,
+    {"market_research": "market_research", "product_description": "product_description"}
+)
+
 graph.add_edge("product_description", "pricing_strategy")
 graph.add_edge("pricing_strategy", "launch_plan")
 graph.add_edge("launch_plan", "marketing_content")
 graph.add_edge("marketing_content", END)
+
 workflow = graph.compile()
 
 
@@ -413,6 +558,10 @@ class LaunchResponse(BaseModel):
     downloadable_files: Optional[dict] = None
     created_at: Optional[str] = None
     last_updated: Optional[str] = None
+    # Observability for demoing guards/fallbacks/retries
+    retries: Optional[dict] = None
+    model_used: Optional[dict] = None
+    market_research_quality: Optional[str] = None
 
 class RefineRequest(BaseModel):
     session_id: str
@@ -478,7 +627,10 @@ async def generate_launch_plan(request: LaunchRequest):
                     marketing_content=data.get("marketing_content", ""),
                     downloadable_files=data.get("downloadable_files", {}),
                     created_at=session["created_at"].isoformat(),
-                    last_updated=session["last_accessed"].isoformat()
+                    last_updated=session["last_accessed"].isoformat(),
+                    retries=data.get("retries"),
+                    model_used=data.get("model_used"),
+                    market_research_quality=data.get("market_research_quality")
                 )
         
         # Generate new launch plan
@@ -491,7 +643,11 @@ async def generate_launch_plan(request: LaunchRequest):
         state = {
             "product_name": sanitize_text(request.product_name),
             "product_details": sanitize_text(request.product_details),
-            "target_market": sanitize_text(request.target_market)
+            "target_market": sanitize_text(request.target_market),
+            # guardrail controls
+            "max_retries": 1,
+            "retries": {},
+            "model_used": {}
         }
         final_state = workflow.invoke(state)
         
@@ -514,7 +670,10 @@ async def generate_launch_plan(request: LaunchRequest):
             marketing_content=final_state.get("marketing_content", ""),
             downloadable_files=downloadable_files,
             created_at=datetime.now().isoformat(),
-            last_updated=datetime.now().isoformat()
+            last_updated=datetime.now().isoformat(),
+            retries=final_state.get("retries"),
+            model_used=final_state.get("model_used"),
+            market_research_quality=final_state.get("market_research_quality")
         )
         
     except Exception as e:
@@ -576,7 +735,10 @@ async def refine_launch_plan(request: RefineRequest):
             marketing_content=data.get("marketing_content", ""),
             downloadable_files=data.get("downloadable_files", {}),
             created_at=session["created_at"].isoformat(),
-            last_updated=session["last_accessed"].isoformat()
+            last_updated=session["last_accessed"].isoformat(),
+            retries=data.get("retries"),
+            model_used=data.get("model_used"),
+            market_research_quality=data.get("market_research_quality")
         )
         
     except Exception as e:
