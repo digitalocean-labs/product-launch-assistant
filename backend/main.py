@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from langgraph.graph import StateGraph, END
 from langchain_gradient import ChatGradient
 from dotenv import load_dotenv
+import redis
 import requests
 import json
 import logging
@@ -40,36 +41,85 @@ llm_fallback = ChatGradient(
     model="llama3.1-8b-instruct"
 )
 
-# Simple in-memory session storage (for demo - use Redis/DB in production)
+# Optional Redis-backed session storage (falls back to in-memory)
+REDIS_URL = os.getenv("REDIS_URL")
+SESSION_TTL_SECONDS = 60 * 60 * 24  # 24h
+try:
+    _redis = redis.from_url(REDIS_URL) if REDIS_URL else None
+except Exception:
+    _redis = None
+
+# Simple in-memory session storage (dev fallback)
 session_store: Dict[str, Dict[str, Any]] = {}
 
 class SessionManager:
     @staticmethod
     def create_session(initial_data: dict) -> str:
         session_id = str(uuid.uuid4())
-        session_store[session_id] = {
-            "created_at": datetime.now(),
-            "last_accessed": datetime.now(),
+        # Normalize payload for both backends
+        payload = {
+            "created_at": datetime.now().isoformat(),
+            "last_accessed": datetime.now().isoformat(),
             "data": initial_data,
             "history": []
         }
+        if _redis:
+            try:
+                _redis.setex(f"pla:session:{session_id}", SESSION_TTL_SECONDS, json.dumps(payload))
+            except Exception:
+                pass
+        else:
+            session_store[session_id] = {
+                "created_at": datetime.now(),
+                "last_accessed": datetime.now(),
+                "data": initial_data,
+                "history": []
+            }
         return session_id
     
     @staticmethod
     def get_session(session_id: str) -> Optional[dict]:
+        if _redis:
+            try:
+                raw = _redis.get(f"pla:session:{session_id}")
+                if not raw:
+                    return None
+                obj = json.loads(raw)
+                obj["last_accessed"] = datetime.now().isoformat()
+                _redis.setex(f"pla:session:{session_id}", SESSION_TTL_SECONDS, json.dumps(obj))
+                return obj
+            except Exception:
+                pass
         if session_id in session_store:
             session_store[session_id]["last_accessed"] = datetime.now()
             return session_store[session_id]
         return None
     
     @staticmethod
-    def update_session(session_id: str, data: dict):
+    def update_session(session_id: str, data: dict, action: str = "update"):
+        if _redis:
+            try:
+                raw = _redis.get(f"pla:session:{session_id}")
+                if not raw:
+                    return
+                obj = json.loads(raw)
+                obj["data"].update(data)
+                obj["last_accessed"] = datetime.now().isoformat()
+                obj["history"].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "action": action,
+                    "data": data
+                })
+                _redis.setex(f"pla:session:{session_id}", SESSION_TTL_SECONDS, json.dumps(obj))
+                return
+            except Exception:
+                pass
         if session_id in session_store:
             session_store[session_id]["data"].update(data)
             session_store[session_id]["last_accessed"] = datetime.now()
             session_store[session_id]["history"].append({
                 "timestamp": datetime.now(),
-                "action": "update",
+                "action": action,
                 "data": data
             })
     
@@ -272,6 +322,51 @@ def assess_quality(text: str, minimum_characters: int = MARKET_RESEARCH_MIN_CHAR
     return "good"
 
 
+# -------------------------
+# Memory helpers: recent events and rolling summary
+# -------------------------
+
+MAX_RECENT_EVENTS = 12
+SUMMARY_MIN_CHARS = 1200
+
+def log_step(state: dict, section_key: str, content: str):
+    """Append a concise event to recent history within state."""
+    event = {
+        "timestamp": datetime.now().isoformat(),
+        "section": section_key,
+        "preview": (content or "")[:240]
+    }
+    recent = state.setdefault("recent_events", [])
+    recent.append(event)
+    if len(recent) > MAX_RECENT_EVENTS:
+        state["recent_events"] = recent[-MAX_RECENT_EVENTS:]
+
+def maybe_update_memory_summary(state: dict) -> dict:
+    """Maintain a rolling summary to keep prompts small while retaining context."""
+    existing = state.get("memory_summary", "")
+    corpus_parts = [
+        state.get("market_research", "")[:2000],
+        state.get("pricing_strategy", "")[:1200],
+        state.get("launch_plan", "")[:1200],
+        "\nRecent events:\n" + "\n".join([e.get("preview", "") for e in state.get("recent_events", [])[-6:]])
+    ]
+    corpus = "\n\n".join([p for p in corpus_parts if p])
+    if len(existing) < SUMMARY_MIN_CHARS and len(corpus) < SUMMARY_MIN_CHARS:
+        return state
+    prompt = (
+        "Summarize the product context and decisions so far in 10-14 bullet points. "
+        "Preserve key facts, constraints, and decisions. Keep under 400-600 words.\n\n"
+        f"Existing summary (if any): {existing}\n\n"
+        f"New context to compress:\n{corpus}"
+    )
+    try:
+        summary = llm.invoke(prompt).content
+        state["memory_summary"] = summary
+    except Exception:
+        pass
+    return state
+
+
 def generate_with_retries(prompt: str, section_key: str, state: dict, max_retries: int = 2) -> dict:
     """Attempt generation with primary model, retry on failure, then fallback model.
     Tracks retry counts and which model ultimately produced the output.
@@ -420,6 +515,9 @@ def market_research(state: dict):
     
     state = generate_with_retries(prompt, "market_research", state, max_retries=1)
     state['market_research_quality'] = assess_quality(state.get('market_research', ''))
+    # Memory logging and summary
+    log_step(state, "market_research", state.get("market_research", ""))
+    maybe_update_memory_summary(state)
     return state
 
 # 2. Product Description Generation
@@ -430,6 +528,8 @@ def product_description(state: dict):
         f"Target market: {state['target_market']}."
     )
     state = generate_with_retries(prompt, "product_description", state, max_retries=1)
+    log_step(state, "product_description", state.get("product_description", ""))
+    maybe_update_memory_summary(state)
     return state
 
 # 3. Pricing Strategy (Enhanced with web search)
@@ -451,6 +551,8 @@ def pricing_strategy(state: dict):
         f"5. Revenue projections"
     )
     state = generate_with_retries(prompt, "pricing_strategy", state, max_retries=1)
+    log_step(state, "pricing_strategy", state.get("pricing_strategy", ""))
+    maybe_update_memory_summary(state)
     return state
 
 # 4. Launch Plan (Enhanced with diagram generation)
@@ -476,6 +578,8 @@ def launch_plan(state: dict):
     
     # Combine text plan with visual timeline
     state['launch_plan'] = f"{launch_text}\n\n--- VISUAL TIMELINE ---\n{timeline_diagram}"
+    log_step(state, "launch_plan", state.get("launch_plan", ""))
+    maybe_update_memory_summary(state)
     return state
 
 # 5. Marketing Content (Enhanced with web search)
@@ -498,6 +602,8 @@ def marketing_content(state: dict):
         f"Make it engaging, trendy, and tailored to {state['target_market']}"
     )
     state = generate_with_retries(prompt, "marketing_content", state, max_retries=1)
+    log_step(state, "marketing_content", state.get("marketing_content", ""))
+    maybe_update_memory_summary(state)
     return state
 
 # Build the LangGraph workflow with guards, fallbacks, and retries
@@ -562,6 +668,9 @@ class LaunchResponse(BaseModel):
     retries: Optional[dict] = None
     model_used: Optional[dict] = None
     market_research_quality: Optional[str] = None
+    # Memory fields (optional)
+    memory_summary: Optional[str] = None
+    recent_events: Optional[list] = None
 
 class RefineRequest(BaseModel):
     session_id: str
@@ -630,7 +739,9 @@ async def generate_launch_plan(request: LaunchRequest):
                     last_updated=session["last_accessed"].isoformat(),
                     retries=data.get("retries"),
                     model_used=data.get("model_used"),
-                    market_research_quality=data.get("market_research_quality")
+                    market_research_quality=data.get("market_research_quality"),
+                    memory_summary=data.get("memory_summary"),
+                    recent_events=data.get("recent_events")
                 )
         
         # Generate new launch plan
@@ -673,7 +784,9 @@ async def generate_launch_plan(request: LaunchRequest):
             last_updated=datetime.now().isoformat(),
             retries=final_state.get("retries"),
             model_used=final_state.get("model_used"),
-            market_research_quality=final_state.get("market_research_quality")
+            market_research_quality=final_state.get("market_research_quality"),
+            memory_summary=final_state.get("memory_summary"),
+            recent_events=final_state.get("recent_events")
         )
         
     except Exception as e:
@@ -713,9 +826,15 @@ async def refine_launch_plan(request: RefineRequest):
         # Generate refined content
         refined_content = llm.invoke(refinement_prompt).content
         
-        # Update the session data
+        # Update the session data and memory
         data[request.section_to_refine] = refined_content
-        SessionManager.update_session(request.session_id, {request.section_to_refine: refined_content})
+        log_step(data, request.section_to_refine, refined_content)
+        maybe_update_memory_summary(data)
+        SessionManager.update_session(request.session_id, {
+            request.section_to_refine: refined_content,
+            "recent_events": data.get("recent_events", []),
+            "memory_summary": data.get("memory_summary", "")
+        })
         
         # If files need regeneration
         if request.section_to_refine in ["launch_plan", "marketing_content"]:
@@ -738,7 +857,9 @@ async def refine_launch_plan(request: RefineRequest):
             last_updated=session["last_accessed"].isoformat(),
             retries=data.get("retries"),
             model_used=data.get("model_used"),
-            market_research_quality=data.get("market_research_quality")
+            market_research_quality=data.get("market_research_quality"),
+            memory_summary=data.get("memory_summary"),
+            recent_events=data.get("recent_events")
         )
         
     except Exception as e:
