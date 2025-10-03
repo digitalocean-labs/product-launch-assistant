@@ -208,14 +208,67 @@ def web_search(query: str, max_results: int = 5) -> str:
 # -------------------------
 
 def assess_quality(text: str, minimum_characters: int = MARKET_RESEARCH_MIN_CHARS) -> str:
-    """Very simple heuristic quality check.
-    - Flags content as poor if too short or contains clear warnings.
+    """Robust quality assessment for generated content.
+    - Checks length, structure, and content quality indicators
+    - Avoids false positives from legitimate content
     """
     blob = (text or "").strip()
+    
+    # Length check
     if len(blob) < minimum_characters:
         return "poor"
-    if "⚠️" in blob or "error" in blob.lower():
+    
+    # Check for explicit failure indicators (more specific than generic "error")
+    failure_indicators = [
+        "⚠️ generation failed",
+        "generation failed after retries",
+        "api error:",
+        "search api error:",
+        "web search unavailable:",
+        "failed to generate",
+        "unable to generate",
+        "generation error:",
+        "api unavailable"
+    ]
+    
+    blob_lower = blob.lower()
+    for indicator in failure_indicators:
+        if indicator in blob_lower:
+            return "poor"
+    
+    # Check for structural quality indicators
+    # Good content should have multiple sections/points
+    section_indicators = ["1.", "2.", "3.", "•", "-", "*", "##", "###"]
+    has_structure = any(indicator in blob for indicator in section_indicators)
+    
+    # Check for substantive content (not just placeholders)
+    placeholder_phrases = [
+        "placeholder text",
+        "sample content",
+        "example text",
+        "lorem ipsum",
+        "to be filled",
+        "coming soon"
+    ]
+    
+    has_placeholders = any(phrase in blob_lower for phrase in placeholder_phrases)
+    
+    # Check for minimum word count (more reliable than character count for some content)
+    word_count = len(blob.split())
+    min_words = minimum_characters // 6  # Rough estimate: 6 chars per word
+    
+    # Quality assessment
+    if has_placeholders:
         return "poor"
+    
+    if word_count < min_words:
+        return "poor"
+    
+    # If it has good length, structure, and no failure indicators, consider it good
+    if has_structure or word_count >= min_words * 1.5:
+        return "good"
+    
+    # Default to good if it passes basic checks
     return "good"
 
 
@@ -460,9 +513,16 @@ graph.set_entry_point("market_research")
 # Guarded transition: if market research quality is poor and retries remain, loop back to re-run
 def route_after_market_research(state: dict) -> str:
     quality = state.get("market_research_quality", "poor")
-    if quality == "poor":
-        # Optionally, you can still adjust the query hint for future runs
+    mr_retries = state.get("_mr_retries", 0)
+    max_mr_retries = 2  # Maximum retries for market research
+    
+    if quality == "poor" and mr_retries < max_mr_retries:
+        # Increment retry counter and adjust query hint for future runs
+        state["_mr_retries"] = mr_retries + 1
         state["_mr_query_hint"] = "broaden keywords and include competitor names"
+        return "market_research"
+    
+    # If quality is good or max retries reached, proceed to next step
     return "product_description"
 
 graph.add_conditional_edges(
