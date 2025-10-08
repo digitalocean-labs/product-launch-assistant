@@ -6,4 +6,5 @@ python-dotenv
 langgraph
 langchain-gradient
 requests
+aiohttp
 redis

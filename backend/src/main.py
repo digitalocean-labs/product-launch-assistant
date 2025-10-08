@@ -72,7 +72,7 @@ async def generate_launch_plan(request: LaunchRequest):
             "retries": {},
             "model_used": {}
         }
-        final_state = workflow.invoke(state)
+        final_state = await workflow.ainvoke(state)
         downloadable_files = generate_launch_files(final_state)
         final_state["downloadable_files"] = downloadable_files
         session_id = SessionManager.create_session(final_state)
