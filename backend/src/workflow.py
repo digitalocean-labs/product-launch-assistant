@@ -1,18 +1,20 @@
 from langgraph.graph import StateGraph, END
+import asyncio
+from typing import Dict, Any
 
-from .generation import generate_with_retries
-from .search import web_search
+from .generation import generate_with_retries, generate_with_retries_async
+from .search import web_search, web_search_async
 from .quality import assess_quality
 from .memory import log_step, maybe_update_memory_summary
 from .diagrams import create_launch_timeline_diagram
 
 
-def market_research(state: dict):
+async def market_research(state: dict):
     search_query = f"{state['product_name']} {state['target_market']} market trends competitors 2024"
     query_hint = state.get("_mr_query_hint")
     if query_hint:
         search_query = f"{search_query} {query_hint}"
-    web_data = web_search(search_query)
+    web_data = await web_search_async(search_query)
     prompt = (
         f"Conduct comprehensive market research for '{state['product_name']}' targeting '{state['target_market']}'. "
         f"Use this live market data: {web_data}\n\n"
@@ -25,28 +27,28 @@ def market_research(state: dict):
     )
     if query_hint:
         prompt += f"\n\nWhen analyzing, incorporate this hint: {query_hint}."
-    state = generate_with_retries(prompt, "market_research", state, max_retries=1)
+    state = await generate_with_retries_async(prompt, "market_research", state, max_retries=1)
     state['market_research_quality'] = assess_quality(state.get('market_research', ''))
     log_step(state, "market_research", state.get("market_research", ""))
     maybe_update_memory_summary(state)
     return state
 
 
-def product_description(state: dict):
+async def product_description(state: dict):
     prompt = (
         f"Write a compelling e-commerce product description for '{state['product_name']}'. "
         f"Product details: {state['product_details']}. "
         f"Target market: {state['target_market']}."
     )
-    state = generate_with_retries(prompt, "product_description", state, max_retries=1)
+    state = await generate_with_retries_async(prompt, "product_description", state, max_retries=1)
     log_step(state, "product_description", state.get("product_description", ""))
     maybe_update_memory_summary(state)
     return state
 
 
-def pricing_strategy(state: dict):
+async def pricing_strategy(state: dict):
     pricing_query = f"{state['product_name']} pricing competitor prices {state['target_market']} 2024"
-    pricing_data = web_search(pricing_query)
+    pricing_data = await web_search_async(pricing_query)
     prompt = (
         f"Create a comprehensive pricing strategy for '{state['product_name']}' based on:\n\n"
         f"Market Research: {state['market_research']}\n\n"
@@ -59,13 +61,13 @@ def pricing_strategy(state: dict):
         f"4. Discount and promotion strategies\n"
         f"5. Revenue projections"
     )
-    state = generate_with_retries(prompt, "pricing_strategy", state, max_retries=1)
+    state = await generate_with_retries_async(prompt, "pricing_strategy", state, max_retries=1)
     log_step(state, "pricing_strategy", state.get("pricing_strategy", ""))
     maybe_update_memory_summary(state)
     return state
 
 
-def launch_plan(state: dict):
+async def launch_plan(state: dict):
     prompt = (
         f"Create a comprehensive step-by-step launch plan for '{state['product_name']}' targeting '{state['target_market']}'. "
         f"Based on market research: {state['market_research'][:500]}...\n\n"
@@ -78,7 +80,7 @@ def launch_plan(state: dict):
         f"6. Risk mitigation strategies\n\n"
         f"Focus ONLY on the launch timeline, activities, and execution plan. Do not include pricing information."
     )
-    state = generate_with_retries(prompt, "launch_plan", state, max_retries=1)
+    state = await generate_with_retries_async(prompt, "launch_plan", state, max_retries=1)
     launch_text = state['launch_plan']
     timeline_diagram = create_launch_timeline_diagram(launch_text)
     state['launch_plan'] = f"{launch_text}\n\n--- VISUAL TIMELINE ---\n{timeline_diagram}"
@@ -87,9 +89,9 @@ def launch_plan(state: dict):
     return state
 
 
-def marketing_content(state: dict):
+async def marketing_content(state: dict):
     marketing_query = f"viral marketing campaigns {state['target_market']} trending hashtags 2024"
-    trending_data = web_search(marketing_query)
+    trending_data = await web_search_async(marketing_query)
     # Enforce strict JSON output for marketing content
     prompt = (
         f"Generate comprehensive marketing content for '{state['product_name']}' using the inputs below.\n\n"
@@ -122,7 +124,7 @@ def marketing_content(state: dict):
         f"}}\n\n"
         f"Generate 2-3 items for each array. Make content engaging and specific to the product. Return ONLY the JSON object."
     )
-    state = generate_with_retries(prompt, "marketing_content", state, max_retries=1)
+    state = await generate_with_retries_async(prompt, "marketing_content", state, max_retries=1)
 
     # Attempt to parse/normalize JSON to guarantee strict JSON downstream
     try:
@@ -197,13 +199,45 @@ def marketing_content(state: dict):
     return state
 
 
+async def parallel_phase_1(state: dict):
+    """Execute product_description and pricing_strategy in parallel"""
+    tasks = [
+        product_description(state.copy()),
+        pricing_strategy(state.copy())
+    ]
+    results = await asyncio.gather(*tasks)
+    
+    # Merge results back into the main state
+    for result in results:
+        for key, value in result.items():
+            if key not in ['product_name', 'product_details', 'target_market', 'market_research']:
+                state[key] = value
+    
+    return state
+
+
+async def parallel_phase_2(state: dict):
+    """Execute launch_plan and marketing_content in parallel"""
+    tasks = [
+        launch_plan(state.copy()),
+        marketing_content(state.copy())
+    ]
+    results = await asyncio.gather(*tasks)
+    
+    # Merge results back into the main state
+    for result in results:
+        for key, value in result.items():
+            if key not in ['product_name', 'product_details', 'target_market', 'market_research', 'product_description', 'pricing_strategy']:
+                state[key] = value
+    
+    return state
+
+
 def build_workflow():
     graph = StateGraph(dict)
     graph.add_node("market_research", market_research)
-    graph.add_node("product_description", product_description)
-    graph.add_node("pricing_strategy", pricing_strategy)
-    graph.add_node("launch_plan", launch_plan)
-    graph.add_node("marketing_content", marketing_content)
+    graph.add_node("parallel_phase_1", parallel_phase_1)
+    graph.add_node("parallel_phase_2", parallel_phase_2)
 
     graph.set_entry_point("market_research")
 
@@ -215,18 +249,16 @@ def build_workflow():
             state["_mr_retries"] = mr_retries + 1
             state["_mr_query_hint"] = "broaden keywords and include competitor names"
             return "market_research"
-        return "product_description"
+        return "parallel_phase_1"
 
     graph.add_conditional_edges(
         "market_research",
         route_after_market_research,
-        {"market_research": "market_research", "product_description": "product_description"}
+        {"market_research": "market_research", "parallel_phase_1": "parallel_phase_1"}
     )
 
-    graph.add_edge("product_description", "pricing_strategy")
-    graph.add_edge("pricing_strategy", "launch_plan")
-    graph.add_edge("launch_plan", "marketing_content")
-    graph.add_edge("marketing_content", END)
+    graph.add_edge("parallel_phase_1", "parallel_phase_2")
+    graph.add_edge("parallel_phase_2", END)
 
     return graph.compile()
 
