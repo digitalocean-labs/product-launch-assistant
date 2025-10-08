@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import BaseModel
 
 
@@ -40,5 +40,23 @@ class SessionHistoryResponse(BaseModel):
     created_at: str
     last_accessed: str
     history: list
+
+
+class EvaluationRequest(BaseModel):
+    text: str
+    product_name: str
+    target_market: str
+    context: Optional[str] = ""
+
+
+class EvaluationResponse(BaseModel):
+    total_score: float
+    content_quality: float
+    structure_clarity: float
+    relevance: float
+    actionability: float
+    completeness: float
+    conciseness: float
+    evaluation_summary: str
 
 

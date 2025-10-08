@@ -3,13 +3,30 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+# Configure LangSmith tracing
+os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+os.environ.setdefault("LANGCHAIN_PROJECT", "product-launch-assistant")
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
+# Set LangSmith API key if available
+langsmith_api_key = os.getenv("LANGSMITH_API_KEY")
+if langsmith_api_key:
+    os.environ["LANGCHAIN_API_KEY"] = langsmith_api_key
+    print(f"✅ LangSmith tracing enabled for project: {os.getenv('LANGCHAIN_PROJECT')}")
+else:
+    print("⚠️  LangSmith API key not found. Tracing will be disabled.")
+
 from .config import SERPER_API_KEY
-from .models import LaunchRequest, LaunchResponse, SessionHistoryResponse
+from .models import LaunchRequest, LaunchResponse, SessionHistoryResponse, EvaluationRequest, EvaluationResponse
 from .sessions import SessionManager
 from .security import SecurityHeadersMiddleware, RateLimiterMiddleware
 from .utils import sanitize_text, validate_request_inputs
 from .files import generate_launch_files
 from .workflow import build_workflow
+from .evaluation import evaluate_agent_output
 # Removed refine flow: no longer need generation or memory helpers here
 
 workflow = build_workflow()
@@ -72,6 +89,7 @@ async def generate_launch_plan(request: LaunchRequest):
             "retries": {},
             "model_used": {}
         }
+        # Add LangSmith tracing wrapper
         final_state = await workflow.ainvoke(state)
         downloadable_files = generate_launch_files(final_state)
         final_state["downloadable_files"] = downloadable_files
@@ -140,13 +158,73 @@ async def test_search(query: str = "product launch strategies 2024"):
             "serper_api_configured": bool(SERPER_API_KEY)
         }
 
+@app.post("/evaluate", response_model=EvaluationResponse)
+async def evaluate_text(request: EvaluationRequest):
+    """
+    Evaluate agent-generated text using comprehensive scoring criteria.
+    
+    This endpoint provides detailed evaluation of text outputs including:
+    - Content quality and depth
+    - Structure and clarity
+    - Relevance to product and target market
+    - Actionability of recommendations
+    - Completeness of coverage
+    - Conciseness
+    
+    """
+    try:
+        # Validate inputs
+        if not request.text.strip():
+            raise HTTPException(status_code=400, detail="Text to evaluate cannot be empty")
+        if not request.product_name.strip():
+            raise HTTPException(status_code=400, detail="Product name is required")
+        if not request.target_market.strip():
+            raise HTTPException(status_code=400, detail="Target market is required")
+        
+        # Evaluate the text
+        evaluation_score = evaluate_agent_output(
+            output=request.text,
+            product_name=request.product_name,
+            target_market=request.target_market,
+            context=request.context
+        )
+        
+        # Create evaluation summary
+        summary_parts = [
+            f"Total Score: {evaluation_score.total_score:.2f}/10",
+            f"Content Quality: {evaluation_score.content_quality:.1f}/10",
+            f"Structure & Clarity: {evaluation_score.structure_clarity:.1f}/10",
+            f"Relevance: {evaluation_score.relevance:.1f}/10",
+            f"Actionability: {evaluation_score.actionability:.1f}/10",
+            f"Completeness: {evaluation_score.completeness:.1f}/10",
+            f"Conciseness: {evaluation_score.conciseness:.1f}/10"
+        ]
+        
+        evaluation_summary = " | ".join(summary_parts)
+        
+        return EvaluationResponse(
+            total_score=evaluation_score.total_score,
+            content_quality=evaluation_score.content_quality,
+            structure_clarity=evaluation_score.structure_clarity,
+            relevance=evaluation_score.relevance,
+            actionability=evaluation_score.actionability,
+            completeness=evaluation_score.completeness,
+            conciseness=evaluation_score.conciseness,
+            evaluation_summary=evaluation_summary
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error evaluating text: {str(e)}")
+
+
 @app.get("/")
 async def root():
     return {
         "message": "Product Launch Assistant API",
         "version": "1.0.0",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/health",
+        "evaluate": "/evaluate"
     }
 
 if __name__ == "__main__":

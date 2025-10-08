@@ -8,3 +8,5 @@ langchain-gradient
 requests
 aiohttp
 redis
+langsmith
+langchain[openai]

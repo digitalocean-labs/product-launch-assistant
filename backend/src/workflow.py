@@ -5,8 +5,9 @@ from typing import Dict, Any
 from .generation import generate_with_retries, generate_with_retries_async
 from .search import web_search, web_search_async
 from .quality import assess_quality
-from .memory import log_step, maybe_update_memory_summary
+from .memory import log_step
 from .diagrams import create_launch_timeline_diagram
+from .evaluation import evaluate_agent_output
 
 
 async def market_research(state: dict):
@@ -29,8 +30,32 @@ async def market_research(state: dict):
         prompt += f"\n\nWhen analyzing, incorporate this hint: {query_hint}."
     state = await generate_with_retries_async(prompt, "market_research", state, max_retries=1)
     state['market_research_quality'] = assess_quality(state.get('market_research', ''))
+    
+    # Add detailed evaluation scoring
+    market_research_text = state.get('market_research', '')
+    if market_research_text:
+        context = f"Product: {state['product_name']}, Target Market: {state['target_market']}, Search Data: {web_data[:500]}"
+        run_id = state.get('_langsmith_run_id')  # Will be set by tracing wrapper
+        evaluation_score = evaluate_agent_output(
+            output=market_research_text,
+            product_name=state['product_name'],
+            target_market=state['target_market'],
+            context=context,
+            run_id=run_id
+        )
+        
+        # Store evaluation results in state
+        state['market_research_evaluation'] = {
+            'total_score': evaluation_score.total_score,
+            'content_quality': evaluation_score.content_quality,
+            'structure_clarity': evaluation_score.structure_clarity,
+            'relevance': evaluation_score.relevance,
+            'actionability': evaluation_score.actionability,
+            'completeness': evaluation_score.completeness,
+            'conciseness': evaluation_score.conciseness
+        }
+    
     log_step(state, "market_research", state.get("market_research", ""))
-    maybe_update_memory_summary(state)
     return state
 
 
@@ -42,7 +67,6 @@ async def product_description(state: dict):
     )
     state = await generate_with_retries_async(prompt, "product_description", state, max_retries=1)
     log_step(state, "product_description", state.get("product_description", ""))
-    maybe_update_memory_summary(state)
     return state
 
 
@@ -63,7 +87,6 @@ async def pricing_strategy(state: dict):
     )
     state = await generate_with_retries_async(prompt, "pricing_strategy", state, max_retries=1)
     log_step(state, "pricing_strategy", state.get("pricing_strategy", ""))
-    maybe_update_memory_summary(state)
     return state
 
 
@@ -85,7 +108,6 @@ async def launch_plan(state: dict):
     timeline_diagram = create_launch_timeline_diagram(launch_text)
     state['launch_plan'] = f"{launch_text}\n\n--- VISUAL TIMELINE ---\n{timeline_diagram}"
     log_step(state, "launch_plan", state.get("launch_plan", ""))
-    maybe_update_memory_summary(state)
     return state
 
 
@@ -195,7 +217,6 @@ async def marketing_content(state: dict):
         state["marketing_content_json"] = fallback_content
 
     log_step(state, "marketing_content", state.get("marketing_content", ""))
-    maybe_update_memory_summary(state)
     return state
 
 

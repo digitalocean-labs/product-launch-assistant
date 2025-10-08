@@ -25,6 +25,7 @@ A comprehensive AI-powered product launch planning tool that generates market re
 - **🔄 2-Component Architecture**: Scalable frontend/backend separation for DigitalOcean App Platform
 - **📋 Export Options**: Download your complete launch plan
 - **🔍 Interactive Results**: Tabbed interface with copy-to-clipboard functionality
+- **📈 Agent Evaluation**: Built-in quality scoring with LangSmith tracing
 
 ## 🎯 **What You Get**
 
@@ -74,9 +75,19 @@ product-launch-assistant/
 │   ├── package.json
 │   └── Dockerfile            # Frontend container
 ├── backend/                   # FastAPI application  
-│   ├── main.py               # API server with LangGraph workflow
+│   ├── src/
+│   │   ├── main.py           # FastAPI app + endpoints
+│   │   ├── workflow.py       # LangGraph workflow (parallelized phases)
+│   │   ├── evaluation.py     # Rule-based evaluator + LangSmith logging
+│   │   ├── models.py         # Pydantic request/response models
+│   │   ├── memory.py         # Logging helpers (no LLM calls)
+│   │   ├── search.py         # Web search utilities
+│   │   ├── files.py          # File generation helpers
+│   │   ├── utils.py          # Validation/sanitization
+│   │   ├── config.py         # Config and API keys
+│   │   └── quality.py        # Basic text quality heuristics
 │   ├── requirements.txt      # Python dependencies
-│   └── Dockerfile           # Backend container
+│   └── Dockerfile            # Backend container
 ├── app.yaml                 # DigitalOcean App Platform config
 └── README.md               # This file
 ```
@@ -97,14 +108,21 @@ product-launch-assistant/
 
    pip install -r requirements.txt
    
-   # Copy and configure environment variables
-   cp .env.example .env
-   # Edit .env and set the following keys with your actual values
-   # - DIGITALOCEAN_INFERENCE_KEY (required)
-   # - SERPER_API_KEY (recommended for live web search)
-   
+   # Create and configure environment variables
+   # Create backend/.env with the following (example):
+   cat > .env << 'EOF'
+   # Inference/Search
+   DIGITALOCEAN_INFERENCE_KEY=your_do_inference_key
+   SERPER_API_KEY=your_serper_key
+
+   # LangSmith tracing (observability)
+   LANGSMITH_API_KEY=your_langsmith_key
+   LANGCHAIN_TRACING_V2=true
+   LANGCHAIN_PROJECT=product-launch-assistant
+   EOF
+
    # Start backend
-   python main.py
+   uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
    ```
 
 2. **Frontend Setup** (new terminal):
@@ -164,7 +182,7 @@ product-launch-assistant/
 
 ### **Generate Launch Plan**
 
-**Endpoint**: `POST /backend/launch_assistant`
+**Endpoint**: `POST /backend/launch_assistant` (App Platform) or `POST /launch_assistant` (local)
 
 **Example Request**:
 ```json
@@ -188,6 +206,50 @@ product-launch-assistant/
   "marketing_content": "Social media and email content..."
 }
 ```
+
+## 📈 **Agent Evaluation System**
+
+The system includes comprehensive evaluation capabilities to assess AI-generated content quality:
+
+### **Automatic Evaluation**
+- **Built-in Scoring**: Every market research output is automatically evaluated
+- **Multi-Criteria Assessment**: Content quality, structure, relevance, actionability, completeness, conciseness
+- **Weighted Scoring**: Configurable weights for different evaluation criteria
+- **Quality Thresholds**: Automatic quality checks with retry logic
+
+### **Manual Evaluation API**
+**Endpoint**: `POST /evaluate`
+
+**Example Request**:
+```json
+{
+  "text": "Your text to evaluate...",
+  "product_name": "Product Name",
+  "target_market": "Target Market",
+  "context": "Optional context"
+}
+```
+
+**Response**:
+```json
+{
+  "total_score": 8.5,
+  "content_quality": 9.0,
+  "structure_clarity": 8.0,
+  "relevance": 8.5,
+  "actionability": 8.0,
+  "completeness": 9.0,
+  "conciseness": 7.5,
+  "evaluation_summary": "Total Score: 8.50/10 | Content Quality: 9.0/10 | ..."
+}
+```
+
+### **Integration with LangSmith**
+- **LangSmith Tracing**: Automatic logging of evaluation results for monitoring
+- **Dashboard Analytics**: View evaluation trends and model performance
+- **Setup**: Ensure `LANGSMITH_API_KEY` and `LANGCHAIN_TRACING_V2=true` are set in `backend/.env`
+- **Project name**: `LANGCHAIN_PROJECT=product-launch-assistant`
+- **View traces**: `https://smith.langchain.com/`
 
 ## 🤖 **AI Model Recommendations**
 
