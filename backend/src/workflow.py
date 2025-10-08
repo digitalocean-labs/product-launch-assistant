@@ -90,20 +90,108 @@ def launch_plan(state: dict):
 def marketing_content(state: dict):
     marketing_query = f"viral marketing campaigns {state['target_market']} trending hashtags 2024"
     trending_data = web_search(marketing_query)
+    # Enforce strict JSON output for marketing content
     prompt = (
-        f"Generate comprehensive marketing content for '{state['product_name']}' using:\n\n"
-        f"Product Description: {state['product_description']}\n\n"
-        f"Trending Marketing Data: {trending_data}\n\n"
-        f"Create:\n"
-        f"1. Social media posts (Twitter/X, Instagram, LinkedIn)\n"
-        f"2. Email marketing campaigns (subject lines + content)\n"
-        f"3. Trending hashtags and keywords\n"
-        f"4. Influencer collaboration briefs\n"
-        f"5. Press release template\n"
-        f"6. Content calendar suggestions\n\n"
-        f"Make it engaging, trendy, and tailored to {state['target_market']}"
+        f"Generate comprehensive marketing content for '{state['product_name']}' using the inputs below.\n\n"
+        f"Inputs:\n"
+        f"- Product Description: {state['product_description']}\n"
+        f"- Trending Marketing Data: {trending_data}\n"
+        f"- Target Market: {state['target_market']}\n\n"
+        f"CRITICAL: You must return ONLY a valid JSON object. No markdown, no code fences, no explanations, no extra text.\n\n"
+        f"Use this exact JSON schema:\n"
+        f"{{\n"
+        f"  \"social_posts\": {{\n"
+        f"    \"x\": [\"Post 1 for X/Twitter\", \"Post 2 for X/Twitter\"],\n"
+        f"    \"instagram\": [\"Post 1 for Instagram\", \"Post 2 for Instagram\"],\n"
+        f"    \"linkedin\": [\"Post 1 for LinkedIn\", \"Post 2 for LinkedIn\"]\n"
+        f"  }},\n"
+        f"  \"email_campaigns\": [\n"
+        f"    {{ \"subject\": \"Email Subject 1\", \"content\": \"Email content 1\" }},\n"
+        f"    {{ \"subject\": \"Email Subject 2\", \"content\": \"Email content 2\" }}\n"
+        f"  ],\n"
+        f"  \"hashtags\": [\"#hashtag1\", \"#hashtag2\", \"#hashtag3\"],\n"
+        f"  \"influencer_briefs\": [\n"
+        f"    {{ \"name\": \"Influencer Name 1\", \"brief\": \"Brief for influencer 1\" }},\n"
+        f"    {{ \"name\": \"Influencer Name 2\", \"brief\": \"Brief for influencer 2\" }}\n"
+        f"  ],\n"
+        f"  \"press_release\": \"Full press release text here\",\n"
+        f"  \"content_calendar\": [\n"
+        f"    {{ \"date\": \"2024-01-01\", \"channel\": \"Social Media\", \"content\": \"Content for this date\" }},\n"
+        f"    {{ \"date\": \"2024-01-02\", \"channel\": \"Email\", \"content\": \"Content for this date\" }}\n"
+        f"  ]\n"
+        f"}}\n\n"
+        f"Generate 2-3 items for each array. Make content engaging and specific to the product. Return ONLY the JSON object."
     )
     state = generate_with_retries(prompt, "marketing_content", state, max_retries=1)
+
+    # Attempt to parse/normalize JSON to guarantee strict JSON downstream
+    try:
+        import json, re
+        raw = state.get("marketing_content", "").strip()
+        parsed = None
+        
+        # Try direct JSON parsing first
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            # Try to extract JSON object if model added extra text
+            # Look for JSON object between curly braces
+            match = re.search(r'\{[\s\S]*\}', raw)
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    pass
+            
+            # If still no luck, try to find JSON after common prefixes
+            if not parsed:
+                for prefix in ['```json', '```', 'JSON:', 'Response:']:
+                    if prefix in raw:
+                        json_start = raw.find(prefix) + len(prefix)
+                        json_text = raw[json_start:].strip()
+                        match = re.search(r'\{[\s\S]*\}', json_text)
+                        if match:
+                            try:
+                                parsed = json.loads(match.group(0))
+                                break
+                            except json.JSONDecodeError:
+                                continue
+        
+        if isinstance(parsed, dict):
+            # Store pretty-printed JSON for clients
+            state["marketing_content"] = json.dumps(parsed, ensure_ascii=False, indent=2)
+            # Also store the parsed object for potential future use
+            state["marketing_content_json"] = parsed
+        else:
+            # If JSON parsing failed, create a fallback structure
+            fallback_content = {
+                "social_posts": {
+                    "x": ["Failed to generate structured content. Please try again."],
+                    "instagram": ["Failed to generate structured content. Please try again."],
+                    "linkedin": ["Failed to generate structured content. Please try again."]
+                },
+                "email_campaigns": [{"subject": "Content Generation Error", "content": "Please regenerate the marketing content."}],
+                "hashtags": ["#error", "#retry"],
+                "influencer_briefs": [{"name": "Error", "brief": "Content generation failed. Please try again."}],
+                "press_release": "Content generation failed. Please try again.",
+                "content_calendar": [{"date": "N/A", "channel": "Error", "content": "Please regenerate content."}]
+            }
+            state["marketing_content"] = json.dumps(fallback_content, ensure_ascii=False, indent=2)
+            state["marketing_content_json"] = fallback_content
+            
+    except Exception as e:
+        # Complete fallback - create minimal valid JSON
+        fallback_content = {
+            "social_posts": {"x": ["Error"], "instagram": ["Error"], "linkedin": ["Error"]},
+            "email_campaigns": [{"subject": "Error", "content": "Please try again"}],
+            "hashtags": ["#error"],
+            "influencer_briefs": [{"name": "Error", "brief": "Please try again"}],
+            "press_release": "Please try again",
+            "content_calendar": [{"date": "N/A", "channel": "Error", "content": "Please try again"}]
+        }
+        state["marketing_content"] = json.dumps(fallback_content, ensure_ascii=False, indent=2)
+        state["marketing_content_json"] = fallback_content
+
     log_step(state, "marketing_content", state.get("marketing_content", ""))
     maybe_update_memory_summary(state)
     return state

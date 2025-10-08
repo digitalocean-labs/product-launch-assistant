@@ -4,14 +4,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import SERPER_API_KEY
-from .models import LaunchRequest, LaunchResponse, RefineRequest, SessionHistoryResponse
+from .models import LaunchRequest, LaunchResponse, SessionHistoryResponse
 from .sessions import SessionManager
 from .security import SecurityHeadersMiddleware, RateLimiterMiddleware
 from .utils import sanitize_text, validate_request_inputs
 from .files import generate_launch_files
 from .workflow import build_workflow
-from .generation import generate_with_retries
-from .memory import log_step, maybe_update_memory_summary
+# Removed refine flow: no longer need generation or memory helpers here
 
 workflow = build_workflow()
 
@@ -108,65 +107,6 @@ async def health_check():
         "version": "1.0.0"
     }
 
-@app.post("/refine", response_model=LaunchResponse)
-async def refine_launch_plan(request: RefineRequest):
-    try:
-        session = SessionManager.get_session(request.session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        data = session["data"]
-        
-        # Create refinement prompt
-        section_content = data.get(request.section_to_refine, "")
-        refinement_prompt = (
-            f"Here is the current {request.section_to_refine} for product '{data.get('product_name')}':\n\n"
-            f"{section_content}\n\n"
-            f"User feedback: {request.refinement_instructions}\n\n"
-            f"Please provide an improved version that addresses the user's feedback while maintaining quality and coherence."
-        )
-        
-        # Generate refined content
-        refined_content = generate_with_retries(refinement_prompt, request.section_to_refine, data, max_retries=1).get(request.section_to_refine, "")
-        
-        # Update the session data and memory
-        data[request.section_to_refine] = refined_content
-        log_step(data, request.section_to_refine, refined_content)
-        maybe_update_memory_summary(data)
-        SessionManager.update_session(request.session_id, {
-            request.section_to_refine: refined_content,
-            "recent_events": data.get("recent_events", []),
-            "memory_summary": data.get("memory_summary", "")
-        })
-        
-        # If files need regeneration
-        if request.section_to_refine in ["launch_plan", "marketing_content"]:
-            updated_files = generate_launch_files(data)
-            data["downloadable_files"] = updated_files
-            SessionManager.update_session(request.session_id, {"downloadable_files": updated_files})
-        
-        return LaunchResponse(
-            session_id=request.session_id,
-            product_name=data.get("product_name", ""),
-            product_details=data.get("product_details", ""),
-            target_market=data.get("target_market", ""),
-            market_research=data.get("market_research", ""),
-            product_description=data.get("product_description", ""),
-            pricing_strategy=data.get("pricing_strategy", ""),
-            launch_plan=data.get("launch_plan", ""),
-            marketing_content=data.get("marketing_content", ""),
-            downloadable_files=data.get("downloadable_files", {}),
-            created_at=session["created_at"].isoformat(),
-            last_updated=session["last_accessed"].isoformat(),
-            retries=data.get("retries"),
-            model_used=data.get("model_used"),
-            market_research_quality=data.get("market_research_quality"),
-            memory_summary=data.get("memory_summary"),
-            recent_events=data.get("recent_events")
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error refining launch plan: {str(e)}")
 
 @app.get("/session/{session_id}/history", response_model=SessionHistoryResponse)
 async def get_session_history(session_id: str):

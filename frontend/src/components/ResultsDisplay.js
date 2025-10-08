@@ -228,8 +228,174 @@ function ResultsDisplay({ results, onReset }) {
         </div>
 
         <div className="prose max-w-none">
-          <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl p-8 text-gray-800 leading-relaxed border border-gray-100 shadow-sm">
-            <ReactMarkdown 
+          <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl p-8 text-gray-800 leading-8 border border-gray-100 shadow-sm">
+            {activeSection.id === 'marketing_content' && (() => {
+              // Try to parse JSON for marketing content
+              try {
+                const data = JSON.parse(activeSection.content);
+                return (
+                  <div className="space-y-8">
+                    <div>
+                      <div className="mb-6">
+                        <div className="h-0.5 w-10 bg-pink-300 mb-3"></div>
+                        <h4 className="text-xl font-bold text-gray-900 flex items-center">
+                          <div className="w-2 h-2 bg-pink-500 rounded-full mr-3"></div>
+                          Social Posts
+                        </h4>
+                      </div>
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <div className="bg-white p-4 rounded-lg border">
+                          <div className="text-sm font-semibold text-pink-600 uppercase tracking-wide mb-4">X (Twitter)</div>
+                          <ul className="list-none ml-0 space-y-2">
+                            {(data.social_posts?.x || []).map((p, idx) => (
+                              <li key={`x-${idx}`} className="flex items-start p-4 bg-gradient-to-r from-pink-50 to-white rounded-lg border border-pink-200 hover:border-pink-300 transition-all duration-200 shadow-sm">
+                                <div className="w-2 h-2 bg-primary-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                                <span className="text-gray-800 font-medium">{p}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg border">
+                          <div className="text-sm font-semibold text-pink-600 uppercase tracking-wide mb-4">Instagram</div>
+                          <ul className="list-none ml-0 space-y-2">
+                            {(data.social_posts?.instagram || []).map((p, idx) => (
+                              <li key={`ig-${idx}`} className="flex items-start p-4 bg-gradient-to-r from-pink-50 to-white rounded-lg border border-pink-200 hover:border-pink-300 transition-all duration-200 shadow-sm">
+                                <div className="w-2 h-2 bg-primary-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                                <span className="text-gray-800 font-medium">{p}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg border">
+                          <div className="text-sm font-semibold text-pink-600 uppercase tracking-wide mb-4">LinkedIn</div>
+                          <ul className="list-none ml-0 space-y-2">
+                            {(data.social_posts?.linkedin || []).map((p, idx) => (
+                              <li key={`li-${idx}`} className="flex items-start p-4 bg-gradient-to-r from-pink-50 to-white rounded-lg border border-pink-200 hover:border-pink-300 transition-all duration-200 shadow-sm">
+                                <div className="w-2 h-2 bg-primary-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                                <span className="text-gray-800 font-medium">{p}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-6">
+                        <div className="h-0.5 w-10 bg-pink-300 mb-3"></div>
+                        <h4 className="text-xl font-bold text-gray-900 flex items-center">
+                          <div className="w-2 h-2 bg-pink-500 rounded-full mr-3"></div>
+                          Email Campaigns
+                        </h4>
+                      </div>
+                      <ul className="list-none ml-0 space-y-2">
+                        {(data.email_campaigns || []).map((e, idx) => (
+                          <li key={`email-${idx}`} className="flex items-start p-6 bg-gradient-to-r from-pink-50 to-white rounded-lg border border-pink-200 hover:border-pink-300 transition-all duration-200 shadow-sm">
+                            <div className="w-2 h-2 bg-primary-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                            <div>
+                              <div className="font-bold text-gray-900 text-lg mb-2">{e.subject}</div>
+                              <div className="text-gray-700 leading-relaxed">{e.content}</div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div>
+                      <div className="mb-6">
+                        <div className="h-0.5 w-10 bg-pink-300 mb-3"></div>
+                        <h4 className="text-xl font-bold text-gray-900 flex items-center">
+                          <div className="w-2 h-2 bg-pink-500 rounded-full mr-3"></div>
+                          Hashtags & Keywords
+                        </h4>
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        {(data.hashtags || []).map((h, idx) => (
+                          <span key={`tag-${idx}`} className="px-4 py-2 bg-gradient-to-r from-pink-100 to-pink-50 text-pink-800 border border-pink-300 rounded-full font-medium hover:from-pink-200 hover:to-pink-100 transition-all duration-200 shadow-sm">
+                            #{h.replace(/^#/, '')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-6">
+                        <div className="h-0.5 w-10 bg-pink-300 mb-3"></div>
+                        <h4 className="text-xl font-bold text-gray-900 flex items-center">
+                          <div className="w-2 h-2 bg-pink-500 rounded-full mr-3"></div>
+                          Influencer Briefs
+                        </h4>
+                      </div>
+                      <ul className="list-none ml-0 space-y-2">
+                        {(data.influencer_briefs || []).map((i, idx) => (
+                          <li key={`inf-${idx}`} className="flex items-start p-6 bg-gradient-to-r from-pink-50 to-white rounded-lg border border-pink-200 hover:border-pink-300 transition-all duration-200 shadow-sm">
+                            <div className="w-2 h-2 bg-primary-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                            <div>
+                              <div className="font-bold text-gray-900 text-lg mb-2">{i.name}</div>
+                              <div className="text-gray-700 leading-relaxed">{i.brief}</div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div>
+                      <div className="mb-6">
+                        <div className="h-0.5 w-10 bg-pink-300 mb-3"></div>
+                        <h4 className="text-xl font-bold text-gray-900 flex items-center">
+                          <div className="w-2 h-2 bg-pink-500 rounded-full mr-3"></div>
+                          Press Release
+                        </h4>
+                      </div>
+                      <div className="bg-gradient-to-r from-pink-50 to-white p-6 rounded-lg border border-pink-200 shadow-sm">
+                        <div className="text-gray-800 leading-relaxed whitespace-pre-wrap font-medium">{data.press_release}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-6">
+                        <div className="h-0.5 w-10 bg-pink-300 mb-3"></div>
+                        <h4 className="text-xl font-bold text-gray-900 flex items-center">
+                          <div className="w-2 h-2 bg-pink-500 rounded-full mr-3"></div>
+                          Content Calendar
+                        </h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full border divide-y divide-pink-200 bg-white rounded-lg shadow-sm">
+                          <thead className="bg-gradient-to-r from-pink-100 to-pink-50">
+                            <tr>
+                              <th className="px-6 py-4 text-left text-sm font-bold text-pink-800 uppercase tracking-wide">Date</th>
+                              <th className="px-6 py-4 text-left text-sm font-bold text-pink-800 uppercase tracking-wide">Channel</th>
+                              <th className="px-6 py-4 text-left text-sm font-bold text-pink-800 uppercase tracking-wide">Content</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-pink-100">
+                            {(data.content_calendar || []).map((c, idx) => (
+                              <tr key={`cal-${idx}`} className="hover:bg-pink-50 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{c.date}</td>
+                                <td className="px-6 py-4 whitespace-nowrap font-medium text-pink-700">{c.channel}</td>
+                                <td className="px-6 py-4 text-gray-800">{c.content}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                );
+              } catch (e) {
+                // Fallback to markdown if not valid JSON
+                return (
+                  <ReactMarkdown 
+                    components={{}}
+                  >
+                    {activeSection.content}
+                  </ReactMarkdown>
+                );
+              }
+            })()}
+            {activeSection.id !== 'marketing_content' && (
+              <ReactMarkdown 
               components={{
                 h1: ({children}) => (
                   <h1 className="text-3xl font-bold text-gray-900 mb-6 pb-3 border-b-2 border-primary-200">
@@ -237,19 +403,22 @@ function ResultsDisplay({ results, onReset }) {
                   </h1>
                 ),
                 h2: ({children}) => (
-                  <h2 className="text-2xl font-semibold text-gray-800 mb-4 mt-8 flex items-center">
-                    <div className="w-2 h-2 bg-primary-500 rounded-full mr-3"></div>
-                    {children}
-                  </h2>
+                  <div className="mt-10 mb-6">
+                    <div className="h-0.5 w-10 bg-primary-300 mb-3"></div>
+                    <h2 className="text-2xl font-semibold text-gray-900 flex items-center tracking-tight">
+                      <div className="w-2 h-2 bg-primary-500 rounded-full mr-3"></div>
+                      {children}
+                    </h2>
+                  </div>
                 ),
                 h3: ({children}) => (
-                  <h3 className="text-xl font-semibold text-gray-700 mb-3 mt-6 flex items-center">
+                  <h3 className="text-xl font-semibold text-gray-800 mb-3 mt-6 flex items-center">
                     <div className="w-1.5 h-1.5 bg-primary-400 rounded-full mr-2"></div>
                     {children}
                   </h3>
                 ),
                 p: ({children}) => (
-                  <p className="mb-4 text-gray-700 leading-7 text-base">
+                  <p className="mb-5 text-gray-800 leading-8 text-[17px]">
                     {children}
                   </p>
                 ),
@@ -259,9 +428,9 @@ function ResultsDisplay({ results, onReset }) {
                   </ul>
                 ),
                 li: ({children}) => (
-                  <li className="flex items-start mb-3 p-3 bg-white rounded-lg border-l-4 border-primary-100 shadow-sm">
-                    <div className="w-2 h-2 bg-primary-300 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <span className="text-gray-700">{children}</span>
+                  <li className="flex items-start mb-2 p-3 bg-white rounded-lg border border-gray-100 hover:border-primary-200 transition-colors">
+                    <div className="w-2 h-2 bg-primary-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                    <span className="text-gray-800">{children}</span>
                   </li>
                 ),
                 ol: ({children}) => (
@@ -275,22 +444,46 @@ function ResultsDisplay({ results, onReset }) {
                   </strong>
                 ),
                 em: ({children}) => (
-                  <em className="italic text-gray-600 bg-blue-50 px-1 py-0.5 rounded">
+                  <em className="italic text-gray-700 bg-blue-50 px-1 py-0.5 rounded">
                     {children}
                   </em>
                 ),
                 code: ({children}) => (
-                  <code className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm font-mono">
+                  <code className="bg-gray-100 text-gray-900 px-2 py-1 rounded text-sm font-mono">
                     {children}
                   </code>
                 ),
                 blockquote: ({children}) => (
-                  <blockquote className="border-l-4 border-primary-300 bg-primary-50 pl-6 py-4 my-6 italic text-gray-700">
+                  <blockquote className="border-l-4 border-primary-300 bg-primary-50 pl-6 py-4 my-6 italic text-gray-800">
                     {children}
                   </blockquote>
                 ),
                 hr: () => (
                   <hr className="my-8 border-gray-200 border-t-2" />
+                ),
+                a: ({href, children}) => (
+                  <a href={href} className="text-primary-600 hover:text-primary-700 underline decoration-primary-300 underline-offset-2">
+                    {children}
+                  </a>
+                ),
+                table: ({children}) => (
+                  <div className="overflow-x-auto my-6">
+                    <table className="min-w-full border divide-y divide-gray-200 bg-white rounded-lg">
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({children}) => (
+                  <thead className="bg-gray-50">{children}</thead>
+                ),
+                tbody: ({children}) => (
+                  <tbody className="divide-y divide-gray-100">{children}</tbody>
+                ),
+                th: ({children}) => (
+                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">{children}</th>
+                ),
+                td: ({children}) => (
+                  <td className="px-4 py-2 text-sm text-gray-800 align-top">{children}</td>
                 ),
                 // Custom component for Mermaid diagrams
                 pre: ({children}) => {
@@ -316,12 +509,13 @@ function ResultsDisplay({ results, onReset }) {
                       </div>
                     );
                   }
-                  return <pre className="bg-gray-100 p-4 rounded-lg overflow-x-auto">{children}</pre>;
+                  return <pre className="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm leading-7">{children}</pre>;
                 }
               }}
-            >
-              {activeSection.content}
-            </ReactMarkdown>
+              >
+                {activeSection.content}
+              </ReactMarkdown>
+            )}
           </div>
         </div>
       </div>
