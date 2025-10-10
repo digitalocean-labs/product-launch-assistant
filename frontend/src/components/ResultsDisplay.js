@@ -162,7 +162,7 @@ function ResultsDisplay({ results, onReset }) {
             <label className="text-sm font-semibold text-blue-600 uppercase tracking-wide mb-2 block">
               Product Details
             </label>
-            <p className="text-gray-700 leading-relaxed">
+            <p className="text-lg font-medium text-gray-900 leading-tight">
               {results.product_details}
             </p>
           </div>

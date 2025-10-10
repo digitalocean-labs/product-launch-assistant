@@ -63,7 +63,7 @@ from typing import Dict, List, Tuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from langchain_gradient import ChatGradient
-from main import market_research
+from .workflow import market_research
 
 load_dotenv()
 
@@ -99,7 +99,6 @@ class EvaluationScore:
     
     def __str__(self) -> str:
         return f"Total: {self.total_score:.2f}/10 | Quality: {self.content_quality:.1f} | Structure: {self.structure_clarity:.1f} | Relevance: {self.relevance:.1f} | Actionable: {self.actionability:.1f} | Complete: {self.completeness:.1f} | Concise: {self.conciseness:.1f}"
-
 
 class MarketResearchEvaluator:
     """Automated evaluator for market research responses."""
@@ -301,7 +300,7 @@ class MarketResearchEvaluator:
         
         return max(score, 0.0)
 
-def test_market_research_with_llms(llm_models):
+async def test_market_research_with_llms(llm_models):
     """
     Test market research function with different LLM models and evaluate responses.
     
@@ -344,13 +343,13 @@ def test_market_research_with_llms(llm_models):
                 model=model_name
             )
             
-            # Temporarily replace the global llm in main module
-            import main
-            original_llm = main.llm
-            main.llm = llm
+            # Temporarily replace the global llm in config module
+            from . import config
+            original_llm = config.llm
+            config.llm = llm
             
-            # Run market research
-            result_state = market_research(test_state.copy())
+            # Run market research (async function)
+            result_state = await market_research(test_state.copy())
             response = result_state['market_research']
             
             # Evaluate the response
@@ -373,7 +372,7 @@ def test_market_research_with_llms(llm_models):
             print("")
             
             # Restore original llm
-            main.llm = original_llm
+            config.llm = original_llm
             
         except Exception as e:
             print(f"❌ Error with {model_name}: {str(e)}")
@@ -436,7 +435,6 @@ def test_market_research_with_llms(llm_models):
     
     return results
 
-
 def save_evaluation_results(results: List[Dict], filename: str = "llm_evaluation_results.json"):
     """
     Save evaluation results to a JSON file for further analysis.
@@ -489,8 +487,7 @@ def save_evaluation_results(results: List[Dict], filename: str = "llm_evaluation
     
     print(f"💾 Evaluation results saved to: {filename}")
 
-
-def compare_models_quick(models: List[str] = None):
+async def compare_models_quick(models: List[str] = None):
     """
     Quick comparison function for testing specific models.
     
@@ -501,7 +498,7 @@ def compare_models_quick(models: List[str] = None):
         models = ["llama3.3-70b-instruct", "openai-gpt-4o"]
     
     print(f"🚀 Quick Model Comparison: {' vs '.join(models)}")
-    results = test_market_research_with_llms(models)
+    results = await test_market_research_with_llms(models)
     
     if results:
         # Save results with timestamp
@@ -511,8 +508,7 @@ def compare_models_quick(models: List[str] = None):
     
     return results
 
-
-if __name__ == "__main__":
+async def main():
     # Available models on DigitalOcean's Gradient platform
     models_to_test = [
         "llama3.3-70b-instruct",
@@ -522,8 +518,12 @@ if __name__ == "__main__":
     ]
     
     # Run comprehensive evaluation
-    results = test_market_research_with_llms(models_to_test)
+    results = await test_market_research_with_llms(models_to_test)
     
     # Save detailed results for analysis
     if results:
         save_evaluation_results(results, "market_research_evaluation.json")
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
