@@ -17,7 +17,6 @@ spec:
     - key: REACT_APP_API_URL
       scope: RUN_AND_BUILD_TIME
       value: ${APP_URL}/backend
-
   - name: backend
     git:
       branch: main
